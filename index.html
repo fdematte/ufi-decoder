@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UFI Decoder</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  color: #1a1a1a;
+  background: #fff;
+  padding: 1.25rem;
+}
+h2 { font-size: 18px; font-weight: 600; margin-bottom: 1.25rem; color: #111; }
+label { display: block; font-size: 13px; color: #555; margin-bottom: 6px; }
+.input-row { display: flex; gap: 8px; margin-bottom: 1rem; }
+input[type="text"] {
+  flex: 1;
+  padding: 9px 12px;
+  font-size: 15px;
+  font-family: "Courier New", monospace;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input[type="text"]:focus { border-color: #555; }
+button.btn-primary {
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.btn-primary:hover { background: #333; }
+.samples-label { font-size: 12px; color: #888; margin-bottom: 6px; }
+.samples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 1.5rem; }
+button.btn-sample {
+  font-size: 12px;
+  font-family: "Courier New", monospace;
+  padding: 4px 10px;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #333;
+}
+button.btn-sample:hover { background: #eaeaea; }
+.result-box { border-radius: 10px; padding: 1rem 1.25rem; }
+.result-box.success { background: #f8f8f8; border: 1px solid #e0e0e0; }
+.result-box.error { background: #fff5f5; border: 1px solid #fcc; }
+.result-ufi { font-family: "Courier New", monospace; font-size: 13px; color: #888; margin-bottom: 12px; letter-spacing: 0.05em; }
+.cards-row { display: flex; gap: 10px; margin-bottom: 14px; }
+.card { flex: 1; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px 14px; }
+.card-label { font-size: 11px; color: #888; margin-bottom: 4px; }
+.card-value { font-size: 22px; font-weight: 600; color: #111; line-height: 1.2; }
+.card-sub { font-size: 11px; color: #888; margin-top: 2px; }
+.vat-row { border-top: 1px solid #e5e5e5; padding-top: 12px; }
+.vat-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+.vat-value { font-family: "Courier New", monospace; font-size: 15px; font-weight: 600; color: #111; }
+.note { font-size: 12px; color: #888; margin-top: 8px; }
+.error-title { font-size: 14px; font-weight: 600; color: #c00; margin-bottom: 4px; }
+.error-msg { font-size: 13px; color: #c00; }
+</style>
+</head>
+<body>
+
+<h2>UFI Decoder</h2>
+<label for="ufi-input">Inserisci un UFI (con o senza trattini)</label>
+<div class="input-row">
+  <input type="text" id="ufi-input" placeholder="es. GMTT-2SQN-6FDD-6TV1" />
+  <button class="btn-primary" onclick="ufiDecode()">Decodifica</button>
+</div>
+<p class="samples-label">Esempi rapidi:</p>
+<div class="samples">
+  <button class="btn-sample" onclick="ufiLoadSample('GMTT-2SQN-6FDD-6TV1')">GMTT-2SQN-6FDD-6TV1</button>
+  <button class="btn-sample" onclick="ufiLoadSample('U1JV-SUMH-N988-U751')">U1JV-SUMH-N988-U751</button>
+  <button class="btn-sample" onclick="ufiLoadSample('NJC1-671A-UKF3-J0M8')">NJC1-671A-UKF3-J0M8</button>
+  <button class="btn-sample" onclick="ufiLoadSample('C23S-PQ2V-AMH9-VVRF')">C23S-PQ2V-AMH9-VVRF</button>
+  <button class="btn-sample" onclick="ufiLoadSample('KMTT-DSP3-7FD7-6RWY')">KMTT-DSP3-7FD7-6RWY</button>
+</div>
+<div id="ufi-result"></div>
+
+<script>
+(function() {
+  var B31 = "0123456789ACDEFGHJKMNPQRSTUVWXY";
+  function cVal(c) { return B31.indexOf(c.toUpperCase()); }
+  var GROUPS = [
+    { g:0, b:0, countries:[] },
+    { g:1, b:0, countries:[{code:"FR",name:"France"}] },
+    { g:2, b:0, countries:[{code:"GB",name:"United Kingdom"},{code:"XN",name:"Northern Ireland"}] },
+    { g:3, b:1, countries:[{code:"LT",name:"Lithuania",c:0},{code:"SE",name:"Sweden",c:1}] },
+    { g:4, b:4, countries:[
+      {code:"HR",name:"Croatia",c:0},{code:"IT",name:"Italy",c:1},
+      {code:"LV",name:"Latvia",c:2},{code:"NL",name:"Netherlands",c:3}
+    ]},
+    { g:5, b:7, countries:[
+      {code:"BG",name:"Bulgaria",c:0},{code:"CZ",name:"Czech Rep.",c:1},
+      {code:"IE",name:"Ireland",c:2},{code:"ES",name:"Spain",c:3},
+      {code:"PL",name:"Poland",c:4},{code:"RO",name:"Romania",c:5},
+      {code:"SK",name:"Slovakia",c:6},{code:"CY",name:"Cyprus",c:7},
+      {code:"IS",name:"Iceland",c:8},{code:"BE",name:"Belgium",c:9},
+      {code:"DE",name:"Germany",c:10},{code:"EE",name:"Estonia",c:11},
+      {code:"GR",name:"Greece",c:12},{code:"NO",name:"Norway",c:13},
+      {code:"PT",name:"Portugal",c:14},{code:"AT",name:"Austria",c:15},
+      {code:"DK",name:"Denmark",c:16},{code:"FI",name:"Finland",c:17},
+      {code:"HU",name:"Hungary",c:18},{code:"LU",name:"Luxembourg",c:19},
+      {code:"MT",name:"Malta",c:20},{code:"SI",name:"Slovenia",c:21},
+      {code:"LI",name:"Liechtenstein",c:22}
+    ]}
+  ];
+
+  function decode(raw) {
+    var ufi = raw.replace(/[-\s]/g,"").toUpperCase();
+    if (ufi.length !== 16) return {error:"VAL001: deve essere 16 caratteri (esclusi i trattini)"};
+    var digits = [];
+    for (var i=0; i<16; i++) {
+      var v = cVal(ufi[i]);
+      if (v === -1) return {error:"VAL002: carattere non valido '"+ufi[i]+"'"};
+      digits.push(v);
+    }
+    var chk = 0;
+    for (var i=0; i<16; i++) chk += (i+1)*digits[i];
+    if (chk % 31 !== 0) return {error:"VAL003: checksum non valido (carattere errato o trasposto)"};
+    var reorg = digits.slice(1);
+    var orig = new Array(15);
+    var map = [5,4,3,7,2,8,9,10,1,0,11,6,12,13,14];
+    for (var i=0; i<15; i++) orig[map[i]] = reorg[i];
+    var payload = BigInt(0);
+    for (var i=0; i<15; i++) payload = payload * BigInt(31) + BigInt(orig[i]);
+    var version = payload & BigInt(1);
+    if (version !== BigInt(0)) return {error:"VAL005: bit di versione non valido"};
+    payload >>= BigInt(1);
+    var vatBits = payload & ((BigInt(1)<<BigInt(41))-BigInt(1));
+    payload >>= BigInt(41);
+    var G = Number(payload & BigInt(15));
+    payload >>= BigInt(4);
+    var formulation = Number(payload & ((BigInt(1)<<BigInt(28))-BigInt(1)));
+    var group = null;
+    for (var i=0; i<GROUPS.length; i++) { if (GROUPS[i].g===G) { group=GROUPS[i]; break; } }
+    if (!group) return {error:"VAL004: codice paese interno non corretto"};
+    var countryCode=null, countryName=null, vatNumber=null;
+    if (G===0) {
+      vatNumber = "Company key: " + vatBits.toString();
+    } else {
+      var B = group.b, cIdx=null, nVal=vatBits;
+      if (B>0) {
+        cIdx = Number(vatBits >> BigInt(41-B));
+        nVal = vatBits & ((BigInt(1)<<BigInt(41-B))-BigInt(1));
+      }
+      var country = B===0 ? group.countries[0] : group.countries.find(function(x){return x.c===cIdx;});
+      if (!country) return {error:"VAL004: codice paese interno non corretto"};
+      countryCode = country.code; countryName = country.name;
+      vatNumber = decodeVat(countryCode, nVal);
+    }
+    return {formulation:formulation, countryCode:countryCode, countryName:countryName, vatNumber:vatNumber, G:G, valid:true};
+  }
+
+  function pad(n, len) { return String(n).padStart(len,"0"); }
+
+  function decodeVat(cc, n) {
+    switch(cc) {
+      case "AT": return "AT U"+pad(n,8);
+      case "BE": return "BE "+pad(n,10);
+      case "BG": return "BG "+n;
+      case "CZ": return "CZ "+n;
+      case "DE": return "DE "+pad(n,9);
+      case "DK": return "DK "+pad(n,8);
+      case "EE": return "EE "+pad(n,9);
+      case "FI": return "FI "+pad(n,8);
+      case "GR": return "GR "+pad(n,9);
+      case "HR": return "HR "+pad(n,11);
+      case "HU": return "HU "+pad(n,8);
+      case "IT": return "IT "+pad(n,11);
+      case "LI": return "LI "+pad(n,5);
+      case "LT": return "LT "+n;
+      case "LU": return "LU "+pad(n,8);
+      case "LV": return "LV "+pad(n,11);
+      case "MT": return "MT "+pad(n,8);
+      case "NL": { var d=pad(n,11); return "NL "+d.slice(0,9)+"B"+d.slice(9); }
+      case "NO": return "NO "+pad(n,9);
+      case "PL": return "PL "+pad(n,10);
+      case "PT": return "PT "+pad(n,9);
+      case "RO": return "RO "+n;
+      case "SE": return "SE "+pad(n,12);
+      case "SI": return "SI "+pad(n,8);
+      case "SK": return "SK "+pad(n,10);
+      case "IS": {
+        var v=n, s="", ch="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        for (var i=0;i<6;i++){s=ch[Number(v%BigInt(36))]+s; v=v/BigInt(36);}
+        return "IS "+s;
+      }
+      case "CY": {
+        var letter=String.fromCharCode(65+Number(n/BigInt(100000000)));
+        return "CY "+pad(n%BigInt(100000000),8)+letter;
+      }
+      case "ES": {
+        var d=n%BigInt(10000000), c12=n/BigInt(10000000);
+        var c2=Number(c12%BigInt(36)), c1=Number(c12/BigInt(36));
+        var toC=function(v){return v<10?String(v):String.fromCharCode(65+v-10);};
+        return "ES "+toC(c1)+pad(d,7)+toC(c2);
+      }
+      case "FR": {
+        var d=n%BigInt(1000000000), c12=n/BigInt(1000000000);
+        var c2=Number(c12%BigInt(36)), c1=Number(c12/BigInt(36));
+        var toC=function(v){return v<10?String(v):String.fromCharCode(65+v-10);};
+        return "FR "+toC(c1)+toC(c2)+pad(d,9);
+      }
+      case "GB": case "XN": {
+        var msb=BigInt(1)<<BigInt(40);
+        if (n&msb) return cc+" "+pad(n^msb,9);
+        var d=Number(n%BigInt(1000)), l12=Number(n/BigInt(1000));
+        return cc+" "+String.fromCharCode(65+Math.floor(l12/26))+String.fromCharCode(65+l12%26)+pad(d,3);
+      }
+      case "IE": {
+        var thr=BigInt(1)<<BigInt(33);
+        if (n>=thr) {
+          var inner=n-thr, d=inner%BigInt(10000000), c12=inner/BigInt(10000000);
+          var c1=Number(c12%BigInt(26)), c2=Number(c12/BigInt(26));
+          var l2=c2===0?"":String.fromCharCode(65+c2);
+          return "IE "+pad(d,7)+String.fromCharCode(65+c1)+l2;
+        }
+        var d=n%BigInt(1000000), c12=n/BigInt(1000000);
+        var c2=Number(c12%BigInt(28)), c1=Number(c12/BigInt(28));
+        var toC=function(v){return v<26?String.fromCharCode(65+v):v===26?"+":"*";};
+        var ds=pad(d,6);
+        return "IE "+ds[0]+toC(c1)+ds.slice(1)+toC(c2);
+      }
+      default: return String(n);
+    }
+  }
+
+  function fmt(raw) {
+    var s=raw.replace(/[-\s]/g,"").toUpperCase();
+    if(s.length!==16) return s;
+    return s.slice(0,4)+"-"+s.slice(4,8)+"-"+s.slice(8,12)+"-"+s.slice(12);
+  }
+
+  window.ufiDecode = function() {
+    var input = document.getElementById("ufi-input").value.trim();
+    var el = document.getElementById("ufi-result");
+    if (!input) { el.innerHTML=""; return; }
+    var r = decode(input);
+    if (r.error) {
+      el.innerHTML = '<div class="result-box error"><p class="error-title">Errore di validazione</p><p class="error-msg">'+r.error+'</p></div>';
+    } else {
+      var countryCard = r.countryCode ? '<div class="card"><p class="card-label">Paese</p><p class="card-value">'+r.countryCode+'</p><p class="card-sub">'+r.countryName+'</p></div>' : '';
+      var note = r.G===0 ? '<p class="note">Generato con company key (nessuna partita IVA)</p>' : '';
+      var vatLabel = r.G===0 ? "Company key" : "Partita IVA (VATIN)";
+      el.innerHTML =
+        '<div class="result-box success">' +
+          '<p class="result-ufi">'+fmt(input)+'</p>' +
+          '<div class="cards-row">' +
+            '<div class="card"><p class="card-label">Numero di formulazione</p><p class="card-value">'+r.formulation+'</p></div>' +
+            countryCard +
+          '</div>' +
+          '<div class="vat-row"><p class="vat-label">'+vatLabel+'</p><p class="vat-value">'+r.vatNumber+'</p></div>' +
+          note +
+        '</div>';
+    }
+  };
+
+  window.ufiLoadSample = function(s) {
+    document.getElementById("ufi-input").value = s;
+    ufiDecode();
+  };
+
+  document.getElementById("ufi-input").addEventListener("keydown", function(e){
+    if (e.key==="Enter") ufiDecode();
+  });
+})();
+</script>
+</body>
+</html>
